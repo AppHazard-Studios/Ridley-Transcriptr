@@ -7,7 +7,9 @@ tools.**
 
 ## 🖼️ Preview (Coming Soon)
 
-![Ridley Transcriptr Demo](https://github.com/AppHazard-Studios/Ridley-Transcriptr/blob/main/assets/ridley-transcriptr-small.gif?raw=true)
+<p align="center">
+  <img src="https://github.com/AppHazard-Studios/Ridley-Transcriptr/blob/main/assets/ridley-transcriptr-small.gif?raw=true" width="500"/>
+</p>
 
 ---
 
