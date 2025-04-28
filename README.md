@@ -7,7 +7,7 @@ tools.**
 
 ## 🖼️ Preview (Coming Soon)
 
-*A quick look at the Ridley Transcriptr popup and a sample cleaned transcript will be added here soon.*
+![Ridley Transcriptr Demo](https://github.com/AppHazard-Studios/Ridley-Transcriptr/blob/main/assets/ridley-transcriptr-small.gif?raw=true)
 
 ---
 
