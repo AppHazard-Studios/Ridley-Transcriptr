@@ -5,7 +5,7 @@ tools.**
 
 ---
 
-## 🖼️ Preview (Coming Soon)
+## 🖼️ Preview
 
 <p align="center">
   <img src="https://github.com/AppHazard-Studios/Ridley-Transcriptr/blob/main/assets/ridley-transcriptr-small.gif?raw=true" width="500"/>
