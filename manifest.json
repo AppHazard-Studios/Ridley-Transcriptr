@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Ridley Transcriptr",
+  "version": "1.0",
+  "description": "Automatically download transcripts from Vimeo videos embedded in Ridley College Moodle",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "downloads",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "https://my.ridley.edu.au/*",
+    "https://player.vimeo.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://my.ridley.edu.au/*"],
+      "js": ["content.js"],
+      "css": ["content.css"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["iframe-script.js"],
+      "matches": ["https://player.vimeo.com/*"]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

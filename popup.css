@@ -1,0 +1,207 @@
+:root {
+  --dark-bg: #121212;
+  --card-bg: #1e1e1e;
+  --surface: #242424;
+  --primary: #BB86FC;
+  --primary-dark: #9D4EDD;
+  --secondary: #03DAC6;
+  --error: #CF6679;
+  --on-dark: #ffffff;
+  --on-dark-medium: rgba(255, 255, 255, 0.87);
+  --on-dark-disabled: rgba(255, 255, 255, 0.38);
+  --elevation-1: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+  --elevation-2: 0 3px 6px rgba(0,0,0,0.16), 0 3px 6px rgba(0,0,0,0.23);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Roboto', sans-serif;
+  width: 300px; /* Slightly wider for better spacing */
+  max-height: 450px;
+  overflow-y: auto;
+  background-color: var(--dark-bg);
+  color: var(--on-dark-medium);
+  padding: 0;
+  margin: 0;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 12px; /* Increased padding */
+}
+
+header {
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+h1 {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--on-dark);
+  margin: 0;
+}
+
+#status {
+  font-size: 14px;
+  color: var(--on-dark-medium);
+  margin-bottom: 8px;
+  font-weight: 400;
+}
+
+.video-card {
+  background-color: var(--card-bg);
+  border-radius: 8px;
+  padding: 12px; /* Increased padding */
+  margin-bottom: 10px; /* More space between cards */
+  box-shadow: var(--elevation-1);
+  transition: box-shadow 0.2s ease;
+}
+
+.video-card:hover {
+  box-shadow: var(--elevation-2);
+}
+
+.video-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--on-dark);
+  margin-bottom: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.material-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--primary);
+  color: #000;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-family: 'Roboto', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: var(--elevation-1);
+  width: 100%;
+  letter-spacing: 0.5px;
+}
+
+.material-button:hover {
+  background-color: var(--primary-dark);
+  transform: scale(1.02);
+  box-shadow: 0 0 8px rgba(187, 134, 252, 0.4);
+}
+
+.material-button:active {
+  transform: scale(0.98);
+}
+
+.material-button:disabled {
+  background-color: var(--surface);
+  color: var(--on-dark-disabled);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.material-button .material-icons {
+  margin-right: 6px; /* Consistent spacing for all buttons */
+  font-size: 16px;
+}
+
+#download-all {
+  width: 100%;
+  margin-top: 8px;
+  background-color: var(--secondary);
+  color: #000;
+  display: flex; /* Ensure it's flex */
+  align-items: center; /* Align items center */
+  justify-content: center; /* Center content */
+  font-weight: 500;
+  padding: 10px 16px; /* Slightly taller */
+}
+
+#download-all .material-icons {
+  margin-right: 8px; /* Fix icon spacing */
+}
+
+#download-all:hover {
+  background-color: #00b5a6;
+}
+
+.download-status {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--on-dark-medium);
+  display: none;
+}
+
+.success-text {
+  color: var(--secondary);
+}
+
+.error-text {
+  color: var(--error);
+}
+
+.progress-container {
+  height: 3px;
+  background-color: var(--surface);
+  border-radius: 1px;
+  margin-top: 6px;
+  overflow: hidden;
+  display: none;
+}
+
+.progress-bar {
+  height: 100%;
+  background-color: var(--secondary);
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+/* Empty state styling */
+.empty-state {
+  text-align: center;
+  padding: 20px;
+  color: var(--on-dark-medium);
+  font-size: 14px;
+  display: none;
+}
+
+.empty-state .material-icons {
+  font-size: 36px;
+  margin-bottom: 8px;
+  opacity: 0.7;
+}
+
+/* Make scrollbar thinner and match theme */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--dark-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--surface);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
