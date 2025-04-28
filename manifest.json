@@ -18,15 +18,25 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://my.ridley.edu.au/*"],
-      "js": ["content.js"],
-      "css": ["content.css"]
+      "matches": [
+        "https://my.ridley.edu.au/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ]
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["iframe-script.js"],
-      "matches": ["https://player.vimeo.com/*"]
+      "resources": [
+        "iframe-script.js"
+      ],
+      "matches": [
+        "https://player.vimeo.com/*"
+      ]
     }
   ],
   "background": {
