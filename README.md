@@ -43,7 +43,8 @@ Moodle-based platforms** that embed Vimeo videos.
 
 ## 🧪 Planned Features
 
-- Option to export transcripts as **`.docx` files** for easier formatting and sharing
+- Option to export transcripts as **`.docx` files** to make it easier to highlight, edit, and organise notes for study
+  purposes.
 
 ---
 
