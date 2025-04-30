@@ -16,6 +16,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Return the active tab ID
         sendResponse({tabId: activeTabId || (sender && sender.tab && sender.tab.id)});
         return true;
+    } else if (message.action === 'updateBadge') {
+        // Update the badge with the number of videos
+        if (message.count > 0) {
+            chrome.action.setBadgeText({text: message.count.toString()});
+            chrome.action.setBadgeBackgroundColor({color: '#BB86FC'});
+            // Improve badge positioning
+            chrome.action.setBadgeTextColor({color: '#FFFFFF'});
+            // Position the badge in the bottom right
+            chrome.action.setBadgePositionAdjust({x: 1, y: 1});
+        } else {
+            chrome.action.setBadgeText({text: ''});
+        }
+        sendResponse({success: true});
+        return true;
     } else if (message.action === 'findFrameId') {
         // Get info about all frames in the tab
         chrome.webNavigation.getAllFrames({tabId: message.tabId})
@@ -132,6 +146,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         sendResponse({success: true});
         return true;
+    } else if (message.action === 'refreshPage') {
+        // Refresh the page
+        if (message.tabId) {
+            chrome.tabs.reload(message.tabId);
+            sendResponse({success: true});
+        } else {
+            sendResponse({success: false, error: 'No tab ID provided'});
+        }
+        return true;
     } else if (message.action === 'captureTranscriptContinuous') {
         console.log(`Starting transcript capture for: ${message.videoTitle}`);
 
@@ -171,6 +194,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.tabs.onActivated.addListener(activeInfo => {
     activeTabId = activeInfo.tabId;
 });
+
+// Listen for page navigation to scan for videos automatically
+chrome.webNavigation.onCompleted.addListener((details) => {
+    // Only run on main frame (not iframes)
+    if (details.frameId === 0) {
+        // Only run on Ridley College pages
+        if (details.url.includes('ridley.edu.au')) {
+            // Wait a moment for the page to fully load
+            setTimeout(() => {
+                // Send message to scan for videos
+                chrome.tabs.sendMessage(details.tabId, {
+                    action: 'autoScanForVideos'
+                }).catch(error => {
+                    console.log('Content script might not be ready yet:', error);
+                });
+            }, 1500);
+        }
+    }
+}, {url: [{hostContains: 'ridley.edu.au'}]});
 
 // Function to cancel any active capture processes
 function cancelCaptureProcess() {
@@ -645,12 +687,18 @@ function captureTranscriptContinuous(videoTitle) {
         // Scan initially
         scanForCues();
 
+        // Calculate adaptive scroll step based on container width
+        const containerWidth = scrollContainer.clientWidth || window.innerWidth;
+        // This makes it scroll faster on bigger screens
+        let scrollStep = Math.max(120, Math.min(400, 225 + (containerWidth / 5)));
+
+        console.log(`Adaptive scroll step calculated: ${scrollStep}px for container width: ${containerWidth}px`);
+
         // Set up continuous scrolling with frequent scanning
         let lastScrollTop = -1;
         let lastSegmentCount = 0;
         let noChangeCount = 0;
         let scrollAttempt = 0;
-        const scrollStep = 120;  // Increased for faster scrolling
         const scanInterval = 250; // More frequent scanning
         const maxScrollAttempts = 250; // Maximum attempts to prevent infinite loops
 

@@ -16,7 +16,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         statusElement.textContent = 'Please navigate to Ridley College Moodle.';
         emptyState.style.display = 'block';
         emptyState.querySelector('p').textContent = 'Not on Ridley College site';
+
+        // Clear badge when not on Ridley site
+        chrome.runtime.sendMessage({
+            action: 'updateBadge',
+            count: 0
+        });
+
         return;
+    }
+
+    // Try to activate the tab first to ensure it has focus
+    try {
+        await chrome.tabs.update(activeTab.id, {active: true});
+    } catch (e) {
+        console.error('Could not activate tab:', e);
     }
 
     // Send message to content script to scan for videos
@@ -29,11 +43,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!response || !response.videos || response.videos.length === 0) {
             statusElement.textContent = 'No videos found on this page.';
             emptyState.style.display = 'block';
+
+            // Clear badge when no videos found
+            chrome.runtime.sendMessage({
+                action: 'updateBadge',
+                count: 0
+            });
+
             return;
         }
 
         // Display found videos
         statusElement.textContent = `Found ${response.videos.length} video${response.videos.length > 1 ? 's' : ''}`;
+
+        // Set badge with video count
+        chrome.runtime.sendMessage({
+            action: 'updateBadge',
+            count: response.videos.length
+        });
+
         response.videos.forEach(video => {
             const videoCard = document.createElement('div');
             videoCard.className = 'video-card';
@@ -113,11 +141,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (response.videos.length > 1) {
             downloadAllBtn.style.display = 'flex';
 
+            // Update button text to reflect new behavior
+            downloadAllBtn.innerHTML = '<i class="material-icons">download</i>Download All (Sequential)';
+
             downloadAllBtn.addEventListener('click', () => {
                 // Close the popup when "Download All" is clicked
                 window.close();
 
-                // Send message to process all videos
+                // Send message to process all videos with our new sequential download approach
                 chrome.tabs.sendMessage(activeTab.id, {
                     action: 'processAllVideos',
                     videoIds: response.videos.map(v => v.id)

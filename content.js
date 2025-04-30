@@ -4,6 +4,7 @@ console.log('Ridley Transcriptr loaded');
 // Store detected videos
 let detectedVideos = [];
 let activeCapture = null;
+let processedDownloads = new Set(); // Track processed downloads to prevent duplicates
 
 // Function to detect videos on the Moodle page
 function scanForVideos() {
@@ -87,6 +88,19 @@ function scanForVideos() {
 
         console.log(`Detected video: ${title}, ID: ${videoId}`);
     });
+
+    // Update the badge with the number of detected videos
+    if (detectedVideos.length > 0) {
+        chrome.runtime.sendMessage({
+            action: 'updateBadge',
+            count: detectedVideos.length
+        });
+    } else {
+        chrome.runtime.sendMessage({
+            action: 'updateBadge',
+            count: 0
+        });
+    }
 
     return detectedVideos;
 }
@@ -177,7 +191,35 @@ function cancelActiveCapture() {
     }
 }
 
-// Function to process a video to extract its transcript
+// Function to reload an iframe without refreshing the page
+function reloadIframe(iframe) {
+    if (!iframe) return false;
+
+    try {
+        // Store the original src
+        const originalSrc = iframe.src;
+
+        // Set a blank src then restore the original
+        iframe.src = 'about:blank';
+
+        // Wait a short moment then restore the src
+        setTimeout(() => {
+            iframe.src = originalSrc;
+
+            // Ensure it's fully visible
+            iframe.scrollIntoView({behavior: 'smooth', block: 'center'});
+
+            console.log('Iframe reloaded:', originalSrc);
+        }, 500);
+
+        return true;
+    } catch (error) {
+        console.error('Error reloading iframe:', error);
+        return false;
+    }
+}
+
+// Function to process a video to extract its transcript with automatic retry
 function processVideoTranscript(videoInfo, callback) {
     console.log(`Processing transcript for: ${videoInfo.title}`);
 
@@ -201,7 +243,10 @@ function processVideoTranscript(videoInfo, callback) {
         captureStarted: false,
         actualProgress: 0,   // Actual progress from transcript capture
         estimatedDuration: 60 * 5,  // Estimated duration in seconds (default 5 minutes)
-        completionTime: null // Timestamp when process was completed
+        completionTime: null, // Timestamp when process was completed
+        retryCount: 0,       // Track retry attempts
+        maxRetries: 3,       // Maximum number of retry attempts
+        iframeReloaded: false, // Track if iframe was reloaded
     };
 
     // Start with 0% progress
@@ -403,127 +448,300 @@ function processVideoTranscript(videoInfo, callback) {
     const iframeSrc = videoInfo.iframe.src;
     const videoId = videoInfo.videoId;
 
-    // Update progress target to 5%
-    progressState.target = 0.05;
-    progressState.message = "Accessing video player...";
-    if (overlay.message) {
-        overlay.message.textContent = progressState.message;
-    }
+    // Function to start the capture process with retry logic
+    function startWithRetries() {
+        // Update progress target to 5%
+        progressState.target = 0.05;
+        progressState.message = "Accessing video player...";
+        if (overlay.message) {
+            overlay.message.textContent = progressState.message;
+        }
 
-    // Get the tab ID for later use with chrome.scripting
-    chrome.runtime.sendMessage({action: 'getTabId'}, response => {
-        // Check if we've been cancelled before the callback
-        if (!activeCapture || activeCapture.cancelled) return;
+        // First, ensure we have focus on the tab
+        if (document.hasFocus() === false) {
+            // Try to focus the window
+            window.focus();
+        }
 
-        if (response && response.tabId) {
-            const tabId = response.tabId;
-            // Store tabId in activeCapture for cancellation
-            activeCapture.tabId = tabId;
+        // Get the tab ID for later use with chrome.scripting
+        chrome.runtime.sendMessage({action: 'getTabId'}, response => {
+            // Check if we've been cancelled before the callback
+            if (!activeCapture || activeCapture.cancelled) return;
 
-            // Update progress target to 10%
-            progressState.target = 0.1;
-            progressState.message = "Finding video frame...";
-            if (overlay.message) {
-                overlay.message.textContent = progressState.message;
-            }
+            if (response && response.tabId) {
+                const tabId = response.tabId;
+                // Store tabId in activeCapture for cancellation
+                activeCapture.tabId = tabId;
 
-            // Find which frameId corresponds to our iframe
-            chrome.runtime.sendMessage({
-                action: 'findFrameId',
-                tabId: tabId,
-                videoSrc: iframeSrc,
-                videoId: videoId
-            }, response => {
-                // Check if we've been cancelled before the callback
-                if (!activeCapture || activeCapture.cancelled) return;
+                // Update progress target to 10%
+                progressState.target = 0.1;
+                progressState.message = "Finding video frame...";
+                if (overlay.message) {
+                    overlay.message.textContent = progressState.message;
+                }
 
-                if (response && response.frameId !== undefined) {
-                    const frameId = response.frameId;
-                    // Store frameId in activeCapture for cancellation
-                    activeCapture.frameId = frameId;
-                    console.log(`Found frame ID: ${frameId} for video ${videoInfo.title}`);
+                // Find which frameId corresponds to our iframe
+                chrome.runtime.sendMessage({
+                    action: 'findFrameId',
+                    tabId: tabId,
+                    videoSrc: iframeSrc,
+                    videoId: videoId
+                }, response => {
+                    // Check if we've been cancelled before the callback
+                    if (!activeCapture || activeCapture.cancelled) return;
 
-                    // Update progress target to 15%
-                    progressState.target = 0.15;
-                    progressState.message = "Checking transcript status...";
-                    if (overlay.message) {
-                        overlay.message.textContent = progressState.message;
-                    }
+                    if (response && response.frameId !== undefined) {
+                        const frameId = response.frameId;
+                        // Store frameId in activeCapture for cancellation
+                        activeCapture.frameId = frameId;
+                        console.log(`Found frame ID: ${frameId} for video ${videoInfo.title}`);
 
-                    // First check if transcript is already open
-                    chrome.runtime.sendMessage({
-                        action: 'checkTranscriptOpen',
-                        tabId: tabId,
-                        frameId: frameId
-                    }, response => {
-                        // Check if we've been cancelled before the callback
-                        if (!activeCapture || activeCapture.cancelled) return;
+                        // Update progress target to 15%
+                        progressState.target = 0.15;
+                        progressState.message = "Checking transcript status...";
+                        if (overlay.message) {
+                            overlay.message.textContent = progressState.message;
+                        }
 
-                        const transcriptAlreadyOpen = response && response.isOpen;
+                        // First check if transcript is already open
+                        chrome.runtime.sendMessage({
+                            action: 'checkTranscriptOpen',
+                            tabId: tabId,
+                            frameId: frameId
+                        }, response => {
+                            // Check if we've been cancelled before the callback
+                            if (!activeCapture || activeCapture.cancelled) return;
 
-                        if (transcriptAlreadyOpen) {
-                            console.log('Transcript is already open');
+                            const transcriptAlreadyOpen = response && response.isOpen;
 
-                            // Update progress target to 20%
-                            progressState.target = 0.2;
-                            progressState.message = "Transcript is already open";
+                            if (transcriptAlreadyOpen) {
+                                console.log('Transcript is already open');
+
+                                // Update progress target to 20%
+                                progressState.target = 0.2;
+                                progressState.message = "Transcript is already open";
+                                if (overlay.message) {
+                                    overlay.message.textContent = progressState.message;
+                                }
+
+                                chrome.runtime.sendMessage({
+                                    action: 'scrollToTop',
+                                    tabId: tabId,
+                                    frameId: frameId
+                                }, () => {
+                                    // Check if we've been cancelled before the callback
+                                    if (!activeCapture || activeCapture.cancelled) return;
+
+                                    startCapturing(tabId, frameId);
+                                });
+                            } else {
+                                // Need to click the transcript button first
+                                progressState.target = 0.15;
+                                progressState.message = "Opening transcript panel...";
+                                if (overlay.message) {
+                                    overlay.message.textContent = progressState.message;
+                                }
+
+                                chrome.runtime.sendMessage({
+                                    action: 'clickTranscriptButton',
+                                    tabId: tabId,
+                                    frameId: frameId
+                                }, response => {
+                                    // Check if we've been cancelled before the callback
+                                    if (!activeCapture || activeCapture.cancelled) return;
+
+                                    if (response && response.success) {
+                                        progressState.target = 0.2;
+                                        progressState.message = "Transcript opened successfully";
+                                        if (overlay.message) {
+                                            overlay.message.textContent = progressState.message;
+                                        }
+
+                                        // Wait a bit for the transcript to appear
+                                        setTimeout(() => {
+                                            // Check if we've been cancelled during timeout
+                                            if (!activeCapture || activeCapture.cancelled) return;
+                                            startCapturing(tabId, frameId);
+                                        }, 1000);
+                                    } else {
+                                        // Check if we should retry
+                                        if (progressState.retryCount < progressState.maxRetries) {
+                                            progressState.retryCount++;
+                                            console.log(`Retry attempt ${progressState.retryCount} of ${progressState.maxRetries}`);
+
+                                            // Update overlay message to indicate retry
+                                            progressState.message = `Retrying... (${progressState.retryCount}/${progressState.maxRetries})`;
+                                            if (overlay.message) {
+                                                overlay.message.textContent = progressState.message;
+                                            }
+
+                                            // Wait a moment before retrying
+                                            setTimeout(() => {
+                                                // Check if we've been cancelled during timeout
+                                                if (!activeCapture || activeCapture.cancelled) return;
+                                                startWithRetries();
+                                            }, 1000);
+                                        } else if (!progressState.iframeReloaded) {
+                                            // If we've tried the maximum retries, try reloading the iframe
+                                            progressState.iframeReloaded = true;
+                                            progressState.retryCount = 0; // Reset retry counter
+
+                                            progressState.message = `Reloading video player...`;
+                                            if (overlay.message) {
+                                                overlay.message.textContent = progressState.message;
+                                            }
+
+                                            // Reload just the iframe instead of the whole page
+                                            if (reloadIframe(videoInfo.iframe)) {
+                                                // Wait for iframe to reload
+                                                setTimeout(() => {
+                                                    // Check if we've been cancelled during reload
+                                                    if (!activeCapture || activeCapture.cancelled) return;
+
+                                                    // Restart the process with a fresh retry count
+                                                    progressState.message = `Retrying after reload...`;
+                                                    if (overlay.message) {
+                                                        overlay.message.textContent = progressState.message;
+                                                    }
+
+                                                    setTimeout(() => {
+                                                        startWithRetries();
+                                                    }, 2000); // Wait longer after iframe reload
+                                                }, 2000); // Wait for iframe to reload
+                                            } else {
+                                                // Failed to reload iframe, show error
+                                                handleFailure(response?.error || "Failed to open transcript panel after multiple attempts");
+                                            }
+                                        } else {
+                                            // All retries and iframe reload failed
+                                            handleFailure(response?.error || "Failed to open transcript panel after multiple attempts");
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                    } else {
+                        // Check if we should retry
+                        if (progressState.retryCount < progressState.maxRetries) {
+                            progressState.retryCount++;
+                            console.log(`Retry attempt ${progressState.retryCount} of ${progressState.maxRetries}`);
+
+                            // Update overlay message to indicate retry
+                            progressState.message = `Retrying... (${progressState.retryCount}/${progressState.maxRetries})`;
                             if (overlay.message) {
                                 overlay.message.textContent = progressState.message;
                             }
 
-                            chrome.runtime.sendMessage({
-                                action: 'scrollToTop',
-                                tabId: tabId,
-                                frameId: frameId
-                            }, () => {
-                                // Check if we've been cancelled before the callback
+                            // Wait a moment before retrying
+                            setTimeout(() => {
+                                // Check if we've been cancelled during timeout
                                 if (!activeCapture || activeCapture.cancelled) return;
+                                startWithRetries();
+                            }, 1000);
+                        } else if (!progressState.iframeReloaded) {
+                            // If we've tried the maximum retries, try reloading the iframe
+                            progressState.iframeReloaded = true;
+                            progressState.retryCount = 0; // Reset retry counter
 
-                                startCapturing(tabId, frameId);
-                            });
-                        } else {
-                            // Need to click the transcript button first
-                            progressState.target = 0.15;
-                            progressState.message = "Opening transcript panel...";
+                            progressState.message = `Reloading video player...`;
                             if (overlay.message) {
                                 overlay.message.textContent = progressState.message;
                             }
 
-                            chrome.runtime.sendMessage({
-                                action: 'clickTranscriptButton',
-                                tabId: tabId,
-                                frameId: frameId
-                            }, response => {
-                                // Check if we've been cancelled before the callback
-                                if (!activeCapture || activeCapture.cancelled) return;
+                            // Reload just the iframe instead of the whole page
+                            if (reloadIframe(videoInfo.iframe)) {
+                                // Wait for iframe to reload
+                                setTimeout(() => {
+                                    // Check if we've been cancelled during reload
+                                    if (!activeCapture || activeCapture.cancelled) return;
 
-                                if (response && response.success) {
-                                    progressState.target = 0.2;
-                                    progressState.message = "Transcript opened successfully";
+                                    // Restart the process with a fresh retry count
+                                    progressState.message = `Retrying after reload...`;
                                     if (overlay.message) {
                                         overlay.message.textContent = progressState.message;
                                     }
 
-                                    // Wait a bit for the transcript to appear
                                     setTimeout(() => {
-                                        // Check if we've been cancelled during timeout
-                                        if (!activeCapture || activeCapture.cancelled) return;
-                                        startCapturing(tabId, frameId);
-                                    }, 1000);
-                                } else {
-                                    handleFailure(response?.error || "Failed to open transcript panel");
-                                }
-                            });
+                                        startWithRetries();
+                                    }, 2000); // Wait longer after iframe reload
+                                }, 2000); // Wait for iframe to reload
+                            } else {
+                                // Failed to reload iframe, show error
+                                handleFailure("Could not find the video frame after multiple attempts");
+                            }
+                        } else {
+                            // All retries and iframe reload failed
+                            handleFailure("Could not find the video frame after multiple attempts");
+                        }
+                    }
+                });
+            } else {
+                // Check if we should retry
+                if (progressState.retryCount < progressState.maxRetries) {
+                    progressState.retryCount++;
+                    console.log(`Retry attempt ${progressState.retryCount} of ${progressState.maxRetries}`);
+
+                    // Update overlay message to indicate retry
+                    progressState.message = `Retrying... (${progressState.retryCount}/${progressState.maxRetries})`;
+                    if (overlay.message) {
+                        overlay.message.textContent = progressState.message;
+                    }
+
+                    // Wait a moment before retrying
+                    setTimeout(() => {
+                        // Check if we've been cancelled during timeout
+                        if (!activeCapture || activeCapture.cancelled) return;
+                        startWithRetries();
+                    }, 1000);
+                } else if (!progressState.iframeReloaded) {
+                    // If we've tried the maximum retries, try reloading the iframe
+                    progressState.iframeReloaded = true;
+                    progressState.retryCount = 0; // Reset retry counter
+
+                    // Get the tab ID directly from chrome.tabs
+                    chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+                        if (tabs && tabs.length > 0) {
+                            progressState.message = `Reloading video player...`;
+                            if (overlay.message) {
+                                overlay.message.textContent = progressState.message;
+                            }
+
+                            // Reload just the iframe instead of the whole page
+                            if (reloadIframe(videoInfo.iframe)) {
+                                // Wait for iframe to reload
+                                setTimeout(() => {
+                                    // Check if we've been cancelled during reload
+                                    if (!activeCapture || activeCapture.cancelled) return;
+
+                                    // Restart the process with a fresh retry count
+                                    progressState.message = `Retrying after reload...`;
+                                    if (overlay.message) {
+                                        overlay.message.textContent = progressState.message;
+                                    }
+
+                                    setTimeout(() => {
+                                        startWithRetries();
+                                    }, 2000); // Wait longer after iframe reload
+                                }, 2000); // Wait for iframe to reload
+                            } else {
+                                // Failed to reload iframe, show error
+                                handleFailure("Could not get tab ID after multiple attempts");
+                            }
+                        } else {
+                            // Failed to get tab ID even with chrome.tabs query
+                            handleFailure("Could not get tab ID after multiple attempts");
                         }
                     });
                 } else {
-                    handleFailure("Could not find the video frame");
+                    // All retries and iframe reload failed
+                    handleFailure("Could not get tab ID after multiple attempts");
                 }
-            });
-        } else {
-            handleFailure("Could not get tab ID");
-        }
-    });
+            }
+        });
+    }
+
+    // Start the process with retry capability
+    startWithRetries();
 
     // Function to start the actual capturing process
     function startCapturing(tabId, frameId) {
@@ -578,11 +796,66 @@ function processVideoTranscript(videoInfo, callback) {
                         activeCapture = null;
 
                         // Signal success to callback
-                        if (callback) callback({success: true, fileName: response.fileName});
+                        if (callback) callback({success: true, fileName: response.fileName, text: response.text});
                     }, 2000);
                 }, 500); // Short delay to ensure animation completes
             } else {
-                handleFailure(response?.error || "Failed to capture transcript");
+                // Check if we should retry the capture
+                if (progressState.retryCount < progressState.maxRetries) {
+                    progressState.retryCount++;
+                    console.log(`Retry attempt ${progressState.retryCount} of ${progressState.maxRetries} for capture`);
+
+                    // Update overlay message to indicate retry
+                    progressState.message = `Retrying capture... (${progressState.retryCount}/${progressState.maxRetries})`;
+                    if (overlay.message) {
+                        overlay.message.textContent = progressState.message;
+                    }
+
+                    // Reset capture state
+                    progressState.captureStarted = false;
+                    progressState.target = 0.1;
+
+                    // Wait a moment before retrying
+                    setTimeout(() => {
+                        // Check if we've been cancelled during timeout
+                        if (!activeCapture || activeCapture.cancelled) return;
+                        startCapturing(tabId, frameId);
+                    }, 1500);
+                } else if (!progressState.iframeReloaded) {
+                    // If we've tried the maximum retries, try reloading the iframe
+                    progressState.iframeReloaded = true;
+                    progressState.retryCount = 0; // Reset retry counter
+
+                    progressState.message = `Reloading video player...`;
+                    if (overlay.message) {
+                        overlay.message.textContent = progressState.message;
+                    }
+
+                    // Reload just the iframe instead of the whole page
+                    if (reloadIframe(videoInfo.iframe)) {
+                        // Wait for iframe to reload
+                        setTimeout(() => {
+                            // Check if we've been cancelled during reload
+                            if (!activeCapture || activeCapture.cancelled) return;
+
+                            // Restart the process with a fresh retry count
+                            progressState.message = `Retrying after reload...`;
+                            if (overlay.message) {
+                                overlay.message.textContent = progressState.message;
+                            }
+
+                            setTimeout(() => {
+                                startWithRetries();
+                            }, 2000); // Wait longer after iframe reload
+                        }, 2000); // Wait for iframe to reload
+                    } else {
+                        // Failed to reload iframe, show error
+                        handleFailure(response?.error || "Failed to capture transcript after multiple attempts");
+                    }
+                } else {
+                    // All retries and iframe reload failed
+                    handleFailure(response?.error || "Failed to capture transcript after multiple attempts");
+                }
             }
         });
     }
@@ -609,14 +882,14 @@ function processVideoTranscript(videoInfo, callback) {
             cancelBtn.remove();
         }
 
-        // Add retry button
+        // Add retry button with same styling as cancel button
         addOverlayButton(overlay, "Retry", () => {
             // Remove message listener before cleaning up
             window.removeEventListener('message', handleIframeMessage);
             removeOverlay(overlay);
             activeCapture = null;
             processVideoTranscript(videoInfo, callback);
-        });
+        }, "secondary"); // Use secondary class for consistent styling
 
         // Add close button
         addOverlayButton(overlay, "Close", () => {
@@ -629,14 +902,111 @@ function processVideoTranscript(videoInfo, callback) {
     }
 }
 
-// Function to process multiple videos
+// Function to process multiple videos with sequential downloading
 function processAllVideos(videoIds) {
     if (!videoIds || videoIds.length === 0) return;
 
     let currentIndex = 0;
+    let processingOverlay = null;
 
+    // Reset download tracking to handle new batch
+    processedDownloads = new Set();
+
+    // Create a processing overlay for all videos
+    function createProcessingOverlay(totalVideos) {
+        const overlay = document.createElement('div');
+        overlay.id = 'transcript-downloader-overlay';
+
+        const content = document.createElement('div');
+        content.className = 'overlay-content';
+
+        const title = document.createElement('div');
+        title.className = 'overlay-title';
+        title.textContent = `Processing Multiple Videos`;
+        content.appendChild(title);
+
+        const message = document.createElement('div');
+        message.className = 'overlay-message';
+        message.textContent = `Capturing transcript 1 of ${totalVideos}...`;
+        content.appendChild(message);
+
+        const progressContainer = document.createElement('div');
+        progressContainer.className = 'overlay-progress-container';
+
+        const progressBar = document.createElement('div');
+        progressBar.className = 'overlay-progress-bar';
+        progressContainer.appendChild(progressBar);
+        content.appendChild(progressContainer);
+
+        const status = document.createElement('div');
+        status.className = 'overlay-status';
+        content.appendChild(status);
+
+        const buttonContainer = document.createElement('div');
+        buttonContainer.className = 'overlay-button-container';
+        content.appendChild(buttonContainer);
+
+        overlay.appendChild(content);
+        document.body.appendChild(overlay);
+
+        // Add cancel button
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'overlay-button secondary';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', () => {
+            // Cancel the active process
+            cancelActiveCapture();
+
+            // Remove this overlay
+            if (overlay && overlay.parentNode) {
+                overlay.parentNode.removeChild(overlay);
+            }
+        });
+        buttonContainer.appendChild(cancelBtn);
+
+        return {
+            element: overlay,
+            title: title,
+            message: message,
+            progressBar: progressBar,
+            status: status,
+            buttonContainer: buttonContainer,
+            updateProgress: (current, total, text, percent) => {
+                // If a specific percentage is provided, use that
+                const progressPercent = percent !== undefined
+                    ? percent
+                    : ((current / total) * 100);
+
+                message.textContent = text || `Capturing transcript ${current} of ${total}...`;
+                progressBar.style.width = `${progressPercent}%`;
+            }
+        };
+    }
+
+    // Main process function
     function processNext() {
-        if (currentIndex >= videoIds.length) return;
+        if (currentIndex >= videoIds.length) {
+            // All videos processed, clean up
+            console.log('All videos processed successfully');
+            if (processingOverlay) {
+                // Update the overlay
+                processingOverlay.updateProgress(
+                    videoIds.length,
+                    videoIds.length,
+                    `All transcripts processed successfully!`,
+                    100  // Force progress to 100%
+                );
+
+                // Remove overlay after a short delay
+                setTimeout(() => {
+                    if (processingOverlay && processingOverlay.element && processingOverlay.element.parentNode) {
+                        processingOverlay.element.parentNode.removeChild(processingOverlay.element);
+                        processingOverlay = null;
+                    }
+                }, 2000);
+            }
+            return;
+        }
 
         const videoId = videoIds[currentIndex];
         const video = detectedVideos.find(v => v.id === videoId);
@@ -644,9 +1014,28 @@ function processAllVideos(videoIds) {
         if (video) {
             processVideoTranscript(video, result => {
                 currentIndex++;
+
+                if (processingOverlay) {
+                    if (result.success) {
+                        // Calculate a percent that represents the current progress
+                        const percent = Math.min(100, ((currentIndex / videoIds.length) * 100));
+                        processingOverlay.updateProgress(
+                            currentIndex,
+                            videoIds.length,
+                            undefined,  // Use default message
+                            percent     // Use calculated percentage
+                        );
+                    } else {
+                        processingOverlay.status.textContent = `Error with video ${currentIndex}: ${result.error}`;
+                    }
+                }
+
                 if (currentIndex < videoIds.length) {
                     // Process next video after a short delay
                     setTimeout(processNext, 1000);
+                } else {
+                    // All videos processed
+                    processNext();
                 }
             });
         } else {
@@ -654,6 +1043,9 @@ function processAllVideos(videoIds) {
             processNext();
         }
     }
+
+    // Create the processing overlay
+    processingOverlay = createProcessingOverlay(videoIds.length);
 
     // Start processing the first video
     processNext();
@@ -742,6 +1134,18 @@ function removeOverlay(overlay) {
     }
 }
 
+// Listen for browser navigation events (back/forward buttons)
+window.addEventListener('pageshow', (event) => {
+    // Check if the page is being restored from bfcache (back-forward cache)
+    if (event.persisted) {
+        console.log('Page was restored from back/forward cache, re-initializing...');
+        // Scan for videos automatically when returning to a page via back button
+        setTimeout(() => {
+            scanForVideos();
+        }, 500);
+    }
+});
+
 // Listen for messages from the popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log('Content script received message:', message);
@@ -758,6 +1162,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }));
 
         sendResponse({videos: simplifiedVideos});
+        return true;
+    } else if (message.action === 'autoScanForVideos') {
+        // Automatically scan for videos when page loads/changes
+        scanForVideos();
         return true;
     } else if (message.action === 'processVideo') {
         const videoId = message.videoId;
