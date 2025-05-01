@@ -21,10 +21,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message.count > 0) {
             chrome.action.setBadgeText({text: message.count.toString()});
             chrome.action.setBadgeBackgroundColor({color: '#BB86FC'});
-            // Improve badge positioning
+            // Improve badge positioning - only use compatible API functions
             chrome.action.setBadgeTextColor({color: '#FFFFFF'});
-            // Position the badge in the bottom right
-            chrome.action.setBadgePositionAdjust({x: 1, y: 1});
+            // Remove the setBadgePositionAdjust call that's causing the error
         } else {
             chrome.action.setBadgeText({text: ''});
         }

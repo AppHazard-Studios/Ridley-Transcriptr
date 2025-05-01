@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Ridley Transcriptr",
-  "version": "1.0",
-  "description": "Automatically download transcripts from Vimeo videos embedded in Ridley College Moodle",
+  "version": "1.1",
+  "description": "Automatically download transcripts from Vimeo videos embedded in Ridley College Moodle as .txt files",
   "permissions": [
     "activeTab",
     "scripting",
